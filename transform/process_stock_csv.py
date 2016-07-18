@@ -16,6 +16,8 @@ INDEX_CLOSE = 3
 INDEX_VOL = 4
 
 logger = logging.getLogger("aiwiz")
+margin = 0.004 # tradable fluctuation
+scan_range = 1
 
 class TrainingData:
     def __init__(self, count):
@@ -45,8 +47,13 @@ class TrainingData:
 
     def generate_output(self, ftrain, ftest):
         current = 10 # data is reverse chronologically ordered, leave a few so we can calculate score
-        remain = len(self.data_array) - current
-        while remain > self.sample_count:
+        remain = len(self.data_array) - current - self.sample_count
+        test_count = int(len(self.data_array) / 10)
+        train_count = remain - test_count
+        ftrain.write(str(train_count)+',250,hold,sell,buy\n')
+        ftest.write(str(test_count)+',250,hold,sell,buy\n')
+
+        while remain > 0:
             vol_sum = 0
             close_sum = 0
             for i in range(0, self.sample_count):
@@ -64,33 +71,24 @@ class TrainingData:
                 s = s + '{0},{1},{2},{3},{4},'.format(
                     d[INDEX_OPEN]/base,d[INDEX_HIGH]/base,d[INDEX_LOW]/base,d[INDEX_CLOSE]/base,d[INDEX_VOL]/vol_base)
 
-            max_close = 0
-            min_close = 1000000000.0
-            for i in range(1, 5):
+            min_trade = self.data_array[current][INDEX_CLOSE] * (1.0 - margin)
+            max_trade = self.data_array[current][INDEX_CLOSE] * (1.0 + margin)
+            target = '0\n'
+            for i in range(1, scan_range+1):
                 close = self.data_array[current - i][INDEX_CLOSE]
-                if close < min_close:
-                    min_close = close
-                elif close > max_close:
-                    max_close = close
+                if close < min_trade:
+                    target = '1\n'
+                    break
+                elif close > max_trade:
+                    target = '2\n'
+                    break
 
-            # take this as a parameter later maybe, now uses 0.3% in 5 days as criteria
-            if min_close/self.data_array[current][INDEX_CLOSE] <= 0.97:
-                sell = 1
-            else:
-                sell = 0
-            if max_close/self.data_array[current][INDEX_CLOSE] >= 1.03:
-                buy = 1
-            else:
-                buy = 0
-            s = s + '{0},{1}'.format(sell, buy)
-
-            if current < len(self.data_array) / 10:
+            if current - 10 < test_count:
                 fout = ftest
             else:
                 fout = ftrain
-
             fout.write(s)
-            fout.write('\n')
+            fout.write(target)
 
             current += 1
             remain -=1
